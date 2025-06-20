@@ -56,14 +56,20 @@ import {
 import "./style.css";
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
-import Stats from "three/examples/jsm/libs/stats.module.js";
 import { FlockSystem } from "./flock-system";
+import { seededRandom } from "three/src/math/MathUtils.js";
+import Stats from "stats-gl";
 
 // Define a type for vec2 based on the vec2 function from three/tsl
 type TSLVec2 = ReturnType<typeof vec2>;
 const init = async () => {
   const scene = new THREE.Scene();
-  const stats = new Stats();
+  const stats = new Stats({
+    precision: 3,
+    horizontal: false,
+    trackGPU: true,
+    trackCPT: true,
+  });
   document.body.appendChild(stats.dom);
 
   // Create a camera
@@ -74,7 +80,7 @@ const init = async () => {
     0.1,
     10000
   );
-  camera.position.y = 120;
+  camera.position.y = 50;
   // camera.position.y = 100;
 
   // Create a renderer
@@ -96,14 +102,15 @@ const init = async () => {
   controls.update();
 
   // params
-  const gridMin = -700;
-  const gridMax = 700;
-  const cellSize = 4;
+  const gridMin = -1000;
+  const gridMax = 1000;
+  const cellSize = 6;
+  const loopStart = -2;
+  const loopEnd = 2;
   const gridWidth = (gridMax - gridMin) / cellSize;
   const numberOfBuckets = gridWidth * gridWidth;
-  // const boidCount = 150000;
-  const boidCount = 200000;
-  const maxBoidsPerCell = 50; // This is an estimate, adjust as needed
+  const boidCount = 200000; // in words - 450k
+  const maxBoidsPerCell = 20; // This is an estimate, adjust as needed
   console.log({
     gridMin,
     gridMax,
@@ -217,10 +224,20 @@ const init = async () => {
         .sub(gridMax)
     );
 
-    // Set initial velocities
-    // velocity.x.assign(hash(instanceIndex.add(2)).mul(2).sub(2)); // -1 to +1
-    velocity.y.assign(0); // No Y movement initially
-    velocity.z.assign(hash(instanceIndex.add(4)).mul(2).sub(2)); // -1 to +1
+    // Set initial velocities random in all directions
+    // random between -10 to +10
+    velocity.x.assign(
+      hash(instanceIndex.add(2))
+        .mul(gridMax * 2)
+        .sub(gridMax)
+        .div(gridMax)
+    );
+    velocity.z.assign(
+      hash(instanceIndex.add(3))
+        .mul(gridMax * 2)
+        .sub(gridMax)
+        .div(gridMax)
+    );
 
     // position.x = sub(hash(instanceIndex).mul(gridMax), gridMax / 2);
     // position.y = sub(hash(instanceIndex.add(2)).mul(90), 45);
@@ -235,9 +252,9 @@ const init = async () => {
 
     // set initial size, maxSpeed, maxForce, and behavior forces
     size.assign(float(0.5));
-    maxSpeed.assign(float(0.6));
+    maxSpeed.assign(float(0.9));
     // maxSpeed.assign(float(.2));
-    maxForce.assign(float(0.3));
+    maxForce.assign(float(0.4));
 
     separationForce.assign(float(0.8));
     alignmentForce.assign(float(0.3));
@@ -253,9 +270,9 @@ const init = async () => {
 
     // Integrate velocity and position
     velocity.addAssign(acceleration);
-    // velocity.mulAssign(0.8); // Dampen velocity
+    // velocity.mulAssign(0.98); // Dampen velocity
     position.addAssign(velocity);
-    acceleration.mulAssign(0);
+    acceleration.mulAssign(0.99);
 
     // Bounce X
     // If(position.x.greaterThan(bound), () => {
@@ -384,16 +401,15 @@ const init = async () => {
     const aliCount = float(0).toVar();
     const cohCount = float(0).toVar();
 
-    const desiredSeparation = size.mul(2);
-    const aliDist = float(3);
-    const cohDist = float(1);
-
+    const desiredSeparation = size.mul(4);
+    const aliDist = float(8);
+    const cohDist = float(6);
     // Get the grid cell for the current boid
 
     const gridCell = getGridCellVec(currentPos);
     // Check 3x3 grid: from -1 to +1 relative to current cell
-    Loop({ start: int(-1), end: int(1), condition: "<" }, ({ i }) => {
-      Loop({ start: int(-1), end: int(1), condition: "<" }, ({ i: j }) => {
+    Loop({ start: loopStart, end: loopEnd, condition: "<" }, ({ i }) => {
+      Loop({ start: loopStart, end: loopEnd, condition: "<" }, ({ i: j }) => {
         // Calculate neighbor cell coordinates
         const nx = gridCell.x.add(i);
         const nz = gridCell.y.add(j);
@@ -421,7 +437,7 @@ const init = async () => {
               ({ i: k }) => {
                 const storageIdx = cellIdx.mul(maxBoidsPerCell).add(k);
                 const otherIdx = atomicLoad(cellBoids.element(storageIdx));
-
+                
                 // Skip if it's the same boid
                 If(otherIdx.notEqual(instanceIndex), () => {
                   const otherPos = positions.element(otherIdx);
@@ -478,6 +494,7 @@ const init = async () => {
       currentAcc.addAssign(cohSum);
     });
 
+    // currentAcc.addAssign(vec3(1, 0, 1).mul(0.1));
     // Wander stays separate
     const wander = computeWander().mul(0.6);
     currentAcc.addAssign(wander);
@@ -496,8 +513,12 @@ const init = async () => {
     const normVel = currentVel.normalize().mul(2);
     const speedCol = normVel.mul(0.5).add(0.5);
     const neighborCount = sepCount.add(aliCount).add(cohCount);
-    const density = neighborCount.div(30.0); // normalize
-    const col = vec3(density.add(speedCol.mul(0.6)), density, density.add(speedCol));
+    const density = neighborCount.div(maxBoidsPerCell*maxBoidsPerCell); // normalize
+    const col = vec3(
+      density.add(speedCol.mul(0.8)),
+      density,
+      density.add(speedCol)
+    );
     colors.element(instanceIndex).assign(col);
   })().compute(boidCount);
 
@@ -576,15 +597,6 @@ const init = async () => {
 
   const material = new THREE.SpriteNodeMaterial();
 
-  // console.log(camera.position.distanceTo(new THREE.Vector3(0, 0, 0)) < 200);
-  // // if camera zoom is close then render circle shape
-  // if (camera.position.distanceTo(new THREE.Vector3(0, 1000, 0)) < 200) {
-  //   material.opacityNode = shapeCircle();
-  //   material.needsUpdate = true;
-  // } else {
-  //   material.opacityNode = shapeBox();
-  //   material.needsUpdate = true;
-  // }
   const cameraTarget = controls.target;
   const cameraPosition = uniform(camera.position, "vec3");
   const cameraZoom = uniform(camera.position.distanceTo(cameraTarget), "float");
@@ -603,7 +615,6 @@ const init = async () => {
   const intersection = new THREE.Vector3();
 
   function objectSetup() {
-    // particle mesh/mat
     material.colorNode = colors.element(instanceIndex);
     material.positionNode = positions.toAttribute();
     material.scaleNode = scaleNode;
@@ -799,14 +810,12 @@ const init = async () => {
   }
   // End DEBUG
   async function animate() {
-    // debugGridSystem();
-    // console.clear();
     stats.update();
     controls.update();
+
     cameraZoom.value = camera.position.distanceTo(controls.target);
     await renderer.computeAsync(clearGrid);
     await renderer.computeAsync(insertBoidsIntoGrid);
-    // await renderer.computeAsync(readCellBoid);
     await renderer.computeAsync(computeUpdatePosition);
     await renderer.computeAsync(computeFlockPosition);
 
