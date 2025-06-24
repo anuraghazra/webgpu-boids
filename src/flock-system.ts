@@ -8,7 +8,6 @@ import {
   If,
   mix,
   step,
-  atan2,
   cos,
   sin,
   negate,
@@ -29,6 +28,7 @@ import {
   min,
   uniform,
   sub,
+  atan,
 } from "three/tsl";
 import * as THREE from "three/webgpu";
 
@@ -37,6 +37,7 @@ type TSLVec2 = ReturnType<typeof vec3>;
 type AtomicArray = ReturnType<typeof instancedArray>;
 
 class FlockSystem {
+  gridSize: number;
   gridMin: number;
   gridMax: number;
   cellSize: number;
@@ -46,6 +47,11 @@ class FlockSystem {
   numberOfBuckets: number;
   boidCount: number;
   maxBoidsPerCell: number;
+  separationForce: number;
+  alignmentForce: number;
+  cohesionForce: number;
+  maxSpeed: number;
+  maxForce: number;
   uniforms!: {
     mouse: {
       position: ShaderNodeObject<
@@ -74,17 +80,31 @@ class FlockSystem {
   };
 
   constructor() {
-    this.gridMin = -1000;
-    this.gridMax = 1000;
+    this.gridSize = 1000;
+    this.gridMin = -this.gridSize;
+    this.gridMax = this.gridSize;
     this.cellSize = 8;
-    this.boidCount = 200000;
-    this.maxBoidsPerCell = 20; // This is an estimate, adjust as needed
+    this.boidCount = 100000;
+    this.maxBoidsPerCell = 50;
     this.loopStart = -1;
     this.loopEnd = 1;
+    this.separationForce = 0.8;
+    this.alignmentForce = 0.3;
+    this.cohesionForce = 0.2;
+    this.maxSpeed = 0.7;
+    this.maxForce = 0.2;
 
     this.gridWidth = (this.gridMax - this.gridMin) / this.cellSize;
     this.numberOfBuckets = this.gridWidth * this.gridWidth;
 
+    this.setupUniforms();
+  }
+
+  reset() {
+    this.gridMin = -this.gridSize;
+    this.gridMax = this.gridSize;
+    this.gridWidth = (this.gridMax - this.gridMin) / this.cellSize;
+    this.numberOfBuckets = this.gridWidth * this.gridWidth;
     this.setupUniforms();
   }
 
@@ -155,12 +175,12 @@ class FlockSystem {
 
       // set initial size, maxSpeed, maxForce, and behavior forces
       this.uniforms.boid.size.assign(float(0.5));
-      this.uniforms.boid.maxSpeed.assign(float(0.7));
-      this.uniforms.boid.maxForce.assign(float(0.2));
+      this.uniforms.boid.maxSpeed.assign(float(this.maxSpeed));
+      this.uniforms.boid.maxForce.assign(float(this.maxForce));
 
-      this.uniforms.boid.forces.separation.assign(float(0.8));
-      this.uniforms.boid.forces.alignment.assign(float(0.3));
-      this.uniforms.boid.forces.cohesion.assign(float(0.2));
+      this.uniforms.boid.forces.separation.assign(float(this.separationForce));
+      this.uniforms.boid.forces.alignment.assign(float(this.alignmentForce));
+      this.uniforms.boid.forces.cohesion.assign(float(this.cohesionForce));
     })().compute(this.boidCount);
 
     return computeInitialPositions;
@@ -238,7 +258,7 @@ class FlockSystem {
     const circleLoc = forward.mul(wanderD).add(currentPos);
 
     // Heading angle for 3D projection
-    const h = negate(atan2(negate(currentVel.z), currentVel.x));
+    const h = negate(atan(negate(currentVel.z), currentVel.x));
 
     const cosTheta = cos(theta.add(h));
     const sinTheta = sin(theta.add(h));
@@ -578,26 +598,18 @@ class FlockSystem {
       this.uniforms.mouse.position.value.z = finalZ;
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("keydown", (e) => {
+    document.onmousemove = handleMouseMove;
+    window.onkeydown = (e) => {
       if (e.key === "Control") {
         this.uniforms.mouse.isDown.value = 1;
       }
-    });
-    window.addEventListener("keyup", (e) => {
+    };
+    window.onkeyup = (e) => {
       if (e.key === "Control") {
         this.uniforms.mouse.isDown.value = 0;
       }
-    });
+    };
   };
-
-  debugAndPrintInstancedUniform(uniform: AtomicArray) {
-    // we need to convert the atomic array to a regular array
-    // const array = uniform.toArray();
-
-    // return array.values[0].value;
-    return uniform; // Return the uniform for now
-  }
 }
 
 export { FlockSystem };

@@ -83,7 +83,7 @@ class Scene {
   private async animate(callback: () => Promise<void>) {
     this.stats.update();
     this.controls.update();
-    
+
     this.cameraZoom.value = this.camera.position.distanceTo(
       this.controls.target
     );
