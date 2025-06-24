@@ -27,7 +27,6 @@ import {
   distance,
   min,
   uniform,
-  sub,
   atan,
 } from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -36,6 +35,7 @@ import * as THREE from "three/webgpu";
 type TSLVec2 = ReturnType<typeof vec3>;
 type AtomicArray = ReturnType<typeof instancedArray>;
 
+// TODO: Split into a Boid class maybe? 
 class FlockSystem {
   gridSize: number;
   gridMin: number;
